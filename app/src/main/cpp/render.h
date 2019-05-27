@@ -10,6 +10,7 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include "gltf_model.h"
+#include "utils.h"
 
 // Must use EGLSyncKHR because the VrApi still supports OpenGL ES 2.0
 #define EGL_SYNC
@@ -26,23 +27,6 @@ extern Render_EGL egl;
 void eglInit();
 void eglDestroy();
 void EglInitExtensions(bool *multi_view);
-
-//
-// ovrFence
-//
-
-typedef struct {
-#if defined( EGL_SYNC )
-    EGLDisplay Display;
-    EGLSyncKHR Sync;
-#else
-    GLsync		Sync;
-#endif
-} ovrFence;
-
-void ovrFence_Create(ovrFence *fence);
-void ovrFence_Destroy(ovrFence *fence);
-void ovrFence_Insert(ovrFence *fence);
 
 //
 // ovrFramebuffer
@@ -62,7 +46,7 @@ typedef struct {
 
 void ovrFramebuffer_Clear(ovrFramebuffer *frameBuffer);
 bool ovrFramebuffer_Create(ovrFramebuffer *frameBuffer, const bool useMultiview,
-                                  const ovrTextureFormat colorFormat, const int width,
+                                  const GLenum colorFormat, const int width,
                                   const int height, const int multisamples);
 void ovrFramebuffer_Destroy(ovrFramebuffer *frameBuffer);
 void ovrFramebuffer_SetCurrent(ovrFramebuffer *frameBuffer);
@@ -105,7 +89,6 @@ enum VertexAttributeLocation {
 
 void ovrGeometry_Clear(ovrGeometry *geometry);
 void ovrGeometry_CreatePanel(ovrGeometry *geometry);
-void ovrGeometry_CreateTestMode(ovrGeometry *geometry);
 void ovrGeometry_Destroy(ovrGeometry *geometry);
 void ovrGeometry_CreateVAO(ovrGeometry *geometry);
 void ovrGeometry_DestroyVAO(ovrGeometry *geometry);
@@ -141,30 +124,28 @@ void ovrProgram_Destroy(ovrProgram *program);
 typedef struct {
     ovrFramebuffer FrameBuffer[VRAPI_FRAME_LAYER_EYE_MAX];
     int NumBuffers;
-    ovrFence *Fence;            // Per-frame completion fence
-    int FenceIndex;
     bool UseMultiview;
     bool SceneCreated;
     ovrProgram Program;
     ovrProgram ProgramLoading;
     ovrGeometry Panel;
-    ovrGeometry TestMode;
-    int SurfaceTextureID;
-    int CameraTexture;
-    int LoadingTexture;
+    GLuint SurfaceTextureID;
+    GLuint CameraTexture;
+    GLuint LoadingTexture;
     bool ARMode;
     GltfModel *loadingScene;
 } ovrRenderer;
 
-void ovrRenderer_Clear(ovrRenderer *renderer);
-void ovrRenderer_Create(ovrRenderer *renderer, const ovrJava *java, const bool useMultiview, int width, int height,
+void ovrRenderer_Create(ovrRenderer *renderer, const bool useMultiview, int width, int height,
                         int SurfaceTextureID, int LoadingTexture, int CameraTexture, bool ARMode);
 void ovrRenderer_Destroy(ovrRenderer *renderer);
 void ovrRenderer_CreateScene(ovrRenderer *renderer);
-ovrLayerProjection2 ovrRenderer_RenderFrame(ovrRenderer *renderer, const ovrJava *java,
-                                                   const ovrTracking2 *tracking, ovrMobile *ovr,
-                                                   unsigned long long *completionFence,
-                                                   bool loading, int enableTestMode,
-                                            int AROverlayMode);
+// Set up an OVR frame, render it, and submit it.
+ovrLayerProjection2 ovrRenderer_RenderFrame(ovrRenderer *renderer, const ovrTracking2 *tracking,
+                                                   bool loading, int AROverlayMode);
+
+// Render the contents of the frame in an SDK-neutral manner.
+void renderEye(int eye, ovrMatrix4f mvpMatrix[2], Recti *viewport, ovrRenderer *renderer,
+               bool loading, int AROverlayMode);
 
 #endif //ALVRCLIENT_RENDER_H

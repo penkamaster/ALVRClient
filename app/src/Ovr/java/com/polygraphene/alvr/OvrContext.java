@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.content.res.AssetManager;
 import android.view.Surface;
 
-public class VrContext {
+public class OvrContext {
 
     static {
         System.loadLibrary("native-lib");
@@ -12,8 +12,8 @@ public class VrContext {
 
     private long handle;
 
-    public void initialize(Activity activity, AssetManager assetManager, boolean ARMode) {
-        handle = initializeNative(activity, assetManager, ARMode);
+    public void initialize(Activity activity, AssetManager assetManager, OvrThread ovrThread, boolean ARMode, int initialRefreshRate) {
+        handle = initializeNative(activity, assetManager, ovrThread, ARMode, initialRefreshRate);
     }
 
     public void destroy() {
@@ -48,16 +48,12 @@ public class VrContext {
         renderLoadingNative(handle);
     }
 
-    public void fetchTrackingInfo(long udpManager, float[] position, float[] orientation) {
-        fetchTrackingInfoNative(handle, udpManager, position, orientation);
+    public void fetchTrackingInfo(UdpReceiverThread udpReceiverThread, float[] position, float[] orientation) {
+        fetchTrackingInfoNative(handle, udpReceiverThread, position, orientation);
     }
 
-    public void onChangeSettings(int EnableTestMode, int suspend) {
-        onChangeSettingsNative(handle, EnableTestMode, suspend);
-    }
-
-    public boolean onKeyEvent(int keyCode, int action) {
-        return onKeyEventNative(handle, keyCode, action);
+    public void onChangeSettings(int suspend) {
+        onChangeSettingsNative(handle, suspend);
     }
 
     public int getLoadingTexture() {
@@ -76,15 +72,19 @@ public class VrContext {
         return isVrModeNative(handle);
     }
 
-    public boolean is72Hz() {
-        return is72HzNative(handle);
+    public void getDeviceDescriptor(DeviceDescriptor deviceDescriptor) {
+        getDeviceDescriptorNative(handle, deviceDescriptor);
     }
 
     public void setFrameGeometry(int width, int height) {
         setFrameGeometryNative(handle, width, height);
     }
-    
-    private native long initializeNative(Activity activity, AssetManager assetManager, boolean ARMode);
+
+    public void setRefreshRate(int refreshRate) {
+        setRefreshRateNative(handle, refreshRate);
+    }
+
+    private native long initializeNative(Activity activity, AssetManager assetManager, OvrThread ovrThread, boolean ARMode, int initialRefreshRate);
     private native void destroyNative(long handle);
 
     private native void onResumeNative(long handle);
@@ -95,17 +95,17 @@ public class VrContext {
     private native void onSurfaceDestroyedNative(long handle);
     private native void renderNative(long handle, long renderedFrameIndex);
     private native void renderLoadingNative(long handle);
-    private native void fetchTrackingInfoNative(long handle, long udpManager, float[] position, float[] orientation);
+    private native void fetchTrackingInfoNative(long handle, UdpReceiverThread udpReceiverThread, float[] position, float[] orientation);
 
-    private native void onChangeSettingsNative(long handle, int EnableTestMode, int suspend);
-    private native boolean onKeyEventNative(long handle, int keyCode, int action);
+    private native void onChangeSettingsNative(long handle, int suspend);
 
     private native int getLoadingTextureNative(long handle);
     private native int getSurfaceTextureIDNative(long handle);
     public native int getCameraTextureNative(long handle);
 
     private native boolean isVrModeNative(long handle);
-    private native boolean is72HzNative(long handle);
+    private native void getDeviceDescriptorNative(long handle, DeviceDescriptor deviceDescriptor);
 
     private native void setFrameGeometryNative(long handle, int width, int height);
+    private native void setRefreshRateNative(long handle, int refreshRate);
 }

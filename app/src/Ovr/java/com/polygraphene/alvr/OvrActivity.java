@@ -1,15 +1,8 @@
 package com.polygraphene.alvr;
 
-import android.app.Activity;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.media.AudioManager;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.SurfaceHolder;
@@ -17,34 +10,30 @@ import android.view.SurfaceView;
 import android.view.Window;
 import android.view.WindowManager;
 
-public class MainActivity extends Activity {
-    private final static String TAG = "MainActivity";
+public class OvrActivity extends BaseActivity {
+    private final static String TAG = "OvrActivity";
 
-    static {
-        System.loadLibrary("native-lib");
-    }
-
-    private VrThread mVrThread = null;
+    private OvrThread mOvrThread = null;
 
     private final SurfaceHolder.Callback mCallback = new SurfaceHolder.Callback() {
         @Override
         public void surfaceCreated(final SurfaceHolder holder) {
-            mVrThread.onSurfaceCreated(holder.getSurface());
+            mOvrThread.onSurfaceCreated(holder.getSurface());
         }
 
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            mVrThread.onSurfaceChanged(holder.getSurface());
+            mOvrThread.onSurfaceChanged(holder.getSurface());
         }
 
         @Override
         public void surfaceDestroyed(SurfaceHolder holder) {
-            mVrThread.onSurfaceDestroyed();
+            mOvrThread.onSurfaceDestroyed();
         }
     };
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -57,19 +46,16 @@ public class MainActivity extends Activity {
         SurfaceHolder holder = surfaceView.getHolder();
         holder.addCallback(mCallback);
 
-        Log.v(TAG, "onCreate: Starting VrThread");
-        mVrThread = new VrThread(this);
-        mVrThread.start();
-
-        ArThread.requestPermissions(this);
+        Log.v(TAG, "onCreate: Starting OvrThread");
+        mOvrThread = new OvrThread(this);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
 
-        if(mVrThread != null) {
-            mVrThread.onResume();
+        if(mOvrThread != null) {
+            mOvrThread.onResume();
         }
     }
 
@@ -77,8 +63,8 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
 
-        if(mVrThread != null) {
-            mVrThread.onPause();
+        if(mOvrThread != null) {
+            mOvrThread.onPause();
         }
     }
 
@@ -86,16 +72,12 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
 
-        Log.v(TAG, "onDestroy: Stopping VrThread.");
-        if(mVrThread != null) {
-            mVrThread.interrupt();
-            try {
-                mVrThread.join();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+        Log.v(TAG, "onDestroy: Stopping OvrThread.");
+        if(mOvrThread != null) {
+            mOvrThread.quit();
+            mOvrThread = null;
         }
-        Log.v(TAG, "onDestroy: VrThread has stopped.");
+        Log.v(TAG, "onDestroy: OvrThread has stopped.");
     }
 
     @Override
@@ -113,7 +95,6 @@ public class MainActivity extends Activity {
                 return true;
             }
 
-            mVrThread.onKeyEvent(event.getKeyCode(), event.getAction());
             return true;
         }else{
             return super.dispatchKeyEvent(event);
@@ -124,23 +105,5 @@ public class MainActivity extends Activity {
     {
         AudioManager audio = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0);
-    }
-
-    public String getVersionName(){
-        try {
-            PackageInfo pInfo = this.getPackageManager().getPackageInfo(getPackageName(), 0);
-            String version = pInfo.versionName;
-            return getString(R.string.app_name) + " v" + version;
-        } catch (PackageManager.NameNotFoundException e) {
-            e.printStackTrace();
-            return getString(R.string.app_name) + " Unknown version";
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if (!ArThread.onRequestPermissionsResult(this)) {
-            finish();
-        }
     }
 }

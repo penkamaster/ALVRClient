@@ -12,16 +12,18 @@
 
 void GltfModel::load() {
     tinygltf::TinyGLTF loader;
-    std::string err;
+    std::string err, warn;
+
+    loader.SetFsCallbacks(gAssetFsCallbacks);
 
     std::vector<unsigned char> buffer;
     if (!loadAsset("loading.gltf", buffer)) {
         LOGE("Error on loading scene gltf file.");
         return;
     }
-    loader.LoadASCIIFromString(&m_model, &err, (char *) &buffer[0], buffer.size(), "");
+    bool ret = loader.LoadASCIIFromString(&m_model, &err, &warn, (char *) &buffer[0], buffer.size(), "");
 
-    LOGI("loaded %lu %d", m_model.scenes.size(), m_model.defaultScene);
+    LOGI("GltfModel loaded. ret=%d scenes=%lu defaultScene=%d err=%s.\nwarn=%s", ret, m_model.scenes.size(), m_model.defaultScene, err.c_str(), warn.c_str());
 
     m_vbs.resize(m_model.bufferViews.size());
 
@@ -44,6 +46,9 @@ void GltfModel::load() {
 
 void GltfModel::drawScene(int position, int uv,
                           int normal, GLint color, GLint mMatrix, GLint mode) {
+    if(m_model.scenes.size() == 0) {
+        return;
+    }
     auto &scene = m_model.scenes[m_model.defaultScene];
 
     m_position = position;
@@ -67,7 +72,7 @@ void GltfModel::drawScene(int position, int uv,
 void GltfModel::drawNodeTree(int node_i, const ovrMatrix4f &transform) {
     auto &node = m_model.nodes[node_i];
 
-    ovrMatrix4f nodeTransform = createNodeTrasform(transform, node);
+    ovrMatrix4f nodeTransform = createNodeTransform(transform, node);
 
     drawNode(node_i, nodeTransform);
 
@@ -179,7 +184,7 @@ void GltfModel::drawNode(int node_i, const ovrMatrix4f &transform) {
 }
 
 ovrMatrix4f
-GltfModel::createNodeTrasform(const ovrMatrix4f &baseTransform, const tinygltf::Node &node) {
+GltfModel::createNodeTransform(const ovrMatrix4f &baseTransform, const tinygltf::Node &node) {
     ovrMatrix4f nodeTransform = baseTransform;
     if(node.translation.size() == 3) {
         ovrMatrix4f translation = ovrMatrix4f_CreateTranslation(node.translation[0], node.translation[1], node.translation[2]);

@@ -1,5 +1,6 @@
 package com.polygraphene.alvr;
 
+import android.app.Activity;
 import android.opengl.EGLContext;
 import android.util.Log;
 
@@ -7,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 
 class TrackingThread extends ThreadBase {
     private static final String TAG = "TrackingThread";
-    private int mRefreshRate;
+    private int mRefreshRate = 200;
 
     interface TrackingCallback {
         void onTracking(float[] position, float[] orientation);
@@ -16,17 +17,20 @@ class TrackingThread extends ThreadBase {
     private TrackingCallback mCallback;
     private ArThread mArThread;
 
-    public TrackingThread(int refreshRate) {
-        mRefreshRate = refreshRate;
+    public TrackingThread() {
     }
 
     public void setCallback(TrackingCallback callback) {
         mCallback = callback;
     }
 
-    public void start(EGLContext mEGLContext, MainActivity mainActivity, int cameraTexture) {
+    void changeRefreshRate(int refreshRate) {
+        //mRefreshRate = refreshRate;
+    }
+
+    public void start(EGLContext mEGLContext, Activity activity, int cameraTexture) {
         mArThread = new ArThread(mEGLContext);
-        mArThread.initialize(mainActivity);
+        mArThread.initialize(activity);
         mArThread.setCameraTexture(cameraTexture);
 
         super.startBase();
@@ -62,13 +66,12 @@ class TrackingThread extends ThreadBase {
                     TimeUnit.NANOSECONDS.sleep(next);
                 }
             } catch (InterruptedException e) {
-                e.printStackTrace();
             }
         }
         Log.v(TAG, "TrackingThread has stopped.");
     }
 
-    public boolean onRequestPermissionsResult(MainActivity activity) {
+    public boolean onRequestPermissionsResult(BaseActivity activity) {
         return mArThread.onRequestPermissionsResult(activity);
     }
 

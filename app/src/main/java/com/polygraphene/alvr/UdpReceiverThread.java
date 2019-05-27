@@ -1,5 +1,6 @@
 package com.polygraphene.alvr;
 
+import android.app.Activity;
 import android.opengl.EGLContext;
 import android.util.Log;
 
@@ -10,7 +11,7 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 
-class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.TrackingCallback {
+class UdpReceiverThread extends ThreadBase implements TrackingThread.TrackingCallback {
     private static final String TAG = "UdpReceiverThread";
 
     static {
@@ -18,11 +19,13 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
     }
 
     private static final String BROADCAST_ADDRESS = "255.255.255.255";
+    private static final int HELLO_PORT = 9943;
+    private static final int PORT = 9944;
 
     private TrackingThread mTrackingThread;
-    private VrContext mVrContext;
-    private int mPort;
-    private boolean mIs72Hz = false;
+
+    private DeviceDescriptor mDeviceDescriptor;
+
     private boolean mInitialized = false;
     private boolean mInitializeFailed = false;
 
@@ -30,24 +33,31 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
     private int mPreviousServerPort;
 
     interface Callback {
-        void onConnected(int width, int height, int codec, int frameQueueSize);
+        void onConnected(int width, int height, int codec, int frameQueueSize, int refreshRate);
 
-        void onChangeSettings(int enableTestMode, int suspend, int frameQueueSize);
+        void onChangeSettings(int suspend, int frameQueueSize);
 
         void onShutdown(String serverAddr, int serverPort);
 
         void onDisconnect();
+
+        void onTracking(float[] position, float[] orientation);
     }
 
     private Callback mCallback;
 
-    UdpReceiverThread(Callback callback, VrContext vrContext) {
-        mCallback = callback;
-        mVrContext = vrContext;
+    public interface NALCallback {
+        NAL obtainNAL(int length);
+        void pushNAL(NAL nal);
     }
 
-    public void setPort(int port) {
-        mPort = port;
+    private NALCallback mNALCallback;
+
+    private long mNativeHandle = 0;
+    private final Object mWaiter = new Object();
+
+    UdpReceiverThread(Callback callback) {
+        mCallback = callback;
     }
 
     private String getDeviceName() {
@@ -65,10 +75,22 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
         mPreviousServerPort = serverPort;
     }
 
-    public boolean start(final boolean is72Hz, EGLContext mEGLContext, MainActivity mainActivity) {
-        mTrackingThread = new TrackingThread(is72Hz ? 72 : 60);
+    public void setSinkPrepared(boolean prepared) {
+        synchronized (mWaiter) {
+            if (mNativeHandle == 0) {
+                return;
+            }
+            setSinkPreparedNative(mNativeHandle, prepared);
+        }
+    }
+
+    public boolean start(EGLContext mEGLContext, Activity activity, DeviceDescriptor deviceDescriptor, int cameraTexture, NALCallback nalCallback) {
+        mTrackingThread = new TrackingThread();
         mTrackingThread.setCallback(this);
-        mIs72Hz = is72Hz;
+
+        mDeviceDescriptor = deviceDescriptor;
+
+        mNALCallback = nalCallback;
 
         super.startBase();
 
@@ -83,7 +105,7 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
         }
 
         if(!mInitializeFailed) {
-            mTrackingThread.start(mEGLContext, mainActivity, mVrContext.getCameraTexture());
+            mTrackingThread.start(mEGLContext, activity, cameraTexture);
         }
         return !mInitializeFailed;
     }
@@ -91,7 +113,9 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
     @Override
     public void stopAndWait() {
         mTrackingThread.stopAndWait();
-        interruptNative();
+        synchronized (mWaiter) {
+            interruptNative(mNativeHandle);
+        }
         super.stopAndWait();
     }
 
@@ -100,9 +124,13 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
         try {
             String[] broadcastList = getBroadcastAddressList();
 
-            int ret = initializeSocket(mPort, getDeviceName(), broadcastList, mIs72Hz);
-            if (ret != 0) {
-                Log.e(TAG, "Error on initializing socket. Code=" + ret + ".");
+            mNativeHandle = initializeSocket(HELLO_PORT, PORT, getDeviceName(), broadcastList,
+                    mDeviceDescriptor.mRefreshRates, mDeviceDescriptor.mRenderWidth, mDeviceDescriptor.mRenderHeight, mDeviceDescriptor.mFov,
+                    mDeviceDescriptor.mDeviceType, mDeviceDescriptor.mDeviceSubType, mDeviceDescriptor.mDeviceCapabilityFlags,
+                    mDeviceDescriptor.mControllerCapabilityFlags
+            );
+            if (mNativeHandle == 0) {
+                Log.e(TAG, "Error on initializing socket.");
                 synchronized (this) {
                     mInitializeFailed = true;
                     notifyAll();
@@ -115,10 +143,11 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
             }
             Log.v(TAG, "UdpReceiverThread initialized.");
 
-            runLoop(mPreviousServerAddress, mPreviousServerPort);
+            runLoop(mNativeHandle, mPreviousServerAddress, mPreviousServerPort);
         } finally {
-            mCallback.onShutdown(getServerAddress(), getServerPort());
-            closeSocket();
+            mCallback.onShutdown(getServerAddress(mNativeHandle), getServerPort(mNativeHandle));
+            closeSocket(mNativeHandle);
+            mNativeHandle = 0;
         }
 
         Log.v(TAG, "UdpReceiverThread stopped.");
@@ -167,24 +196,24 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
 
     @Override
     public void onTracking(float[] position, float[] orientation) {
-        if (isTracking()) {
-            mVrContext.fetchTrackingInfo(getPointer(), position, orientation);
+        if (isConnectedNative(mNativeHandle)) {
+            mCallback.onTracking(position, orientation);
         }
-    }
-
-    public boolean isTracking() {
-        return mVrContext.isVrMode() && isConnected();
     }
 
     public String getErrorMessage() {
         return mTrackingThread.getErrorMessage();
     }
 
+    public boolean isConnected() {
+        return isConnectedNative(mNativeHandle);
+    }
+
     // called from native
     @SuppressWarnings("unused")
-    public void onConnected(int width, int height, int codec, int frameQueueSize) {
+    public void onConnected(int width, int height, int codec, int frameQueueSize, int refreshRate) {
         Log.v(TAG, "onConnected is called.");
-        mCallback.onConnected(width, height, codec, frameQueueSize);
+        mCallback.onConnected(width, height, codec, frameQueueSize, refreshRate);
         mTrackingThread.onConnect();
     }
 
@@ -196,43 +225,42 @@ class UdpReceiverThread extends ThreadBase implements NALParser, TrackingThread.
     }
 
     @SuppressWarnings("unused")
-    public void onChangeSettings(int EnableTestMode, int suspend, int frameQueueSize) {
-        mCallback.onChangeSettings(EnableTestMode, suspend, frameQueueSize);
+    public void onChangeSettings(int suspend, int frameQueueSize) {
+        mCallback.onChangeSettings(suspend, frameQueueSize);
     }
 
-    private native int initializeSocket(int port, String deviceName, String[] broadcastAddrList, boolean is72Hz);
-    private native void closeSocket();
-    private native void runLoop(String serverAddress, int serverPort);
-    private native void interruptNative();
+    @SuppressWarnings("unused")
+    public void send(long nativeBuffer, int bufferLength) {
+        synchronized (mWaiter) {
+            if (mNativeHandle == 0) {
+                return;
+            }
+            sendNative(mNativeHandle, nativeBuffer, bufferLength);
+        }
+    }
 
-    public native boolean isConnected();
+    @SuppressWarnings("unused")
+    public NAL obtainNAL(int length) {
+        return mNALCallback.obtainNAL(length);
+    }
 
-    private native long getPointer();
-    private native String getServerAddress();
-    private native int getServerPort();
+    @SuppressWarnings("unused")
+    public void pushNAL(NAL nal) {
+        mNALCallback.pushNAL(nal);
+    }
 
-    //
-    // NALParser interface
-    //
+    private native long initializeSocket(int helloPort, int port, String deviceName, String[] broadcastAddrList,
+                                         int[] refreshRates, int renderWidth, int renderHeight, float[] fov,
+                                         int deviceType, int deviceSubType, int deviceCapabilityFlags, int controllerCapabilityFlags);
+    private native void closeSocket(long nativeHandle);
+    private native void runLoop(long nativeHandle, String serverAddress, int serverPort);
+    private native void interruptNative(long nativeHandle);
 
-    @Override
-    public native int getNalListSize();
+    private native void sendNative(long nativeHandle, long nativeBuffer, int bufferLength);
 
-    @Override
-    public native NAL waitNal();
+    public native boolean isConnectedNative(long nativeHandle);
 
-    @Override
-    public native NAL getNal();
-
-    @Override
-    public native void recycleNal(NAL nal);
-
-    @Override
-    public native void flushNALList();
-
-    @Override
-    public native void notifyWaitingThread();
-
-    @Override
-    public native void clearStopped();
+    private native String getServerAddress(long nativeHandle);
+    private native int getServerPort(long nativeHandle);
+    private native void setSinkPreparedNative(long nativeHandle, boolean prepared);
 }

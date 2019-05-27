@@ -22,11 +22,11 @@ public:
     Socket();
     ~Socket();
 
-    void initialize(JNIEnv *env, int port,
+    void initialize(JNIEnv *env, int helloPort, int port,
                     jobjectArray broadcastAddrList_);
 
-    int send(const void *buf, size_t len);
     void sendBroadcast(const void *buf, size_t len);
+    int send(const void *buf, size_t len);
     void recv();
 
     void recoverConnection(std::string serverAddress, int serverPort);
@@ -72,15 +72,17 @@ private:
 
     void parse(char *packet, int packetSize, const sockaddr_in &addr);
 
-    void setBroadcastAddrList(JNIEnv *env, int port, jobjectArray broadcastAddrList_);
+    void setBroadcastAddrList(JNIEnv *env, int helloPort, int port, jobjectArray broadcastAddrList_);
 };
 
 class UdpManager {
 public:
     UdpManager();
     ~UdpManager();
-    void initialize(JNIEnv *env, jint port, jstring deviceName_, jobjectArray broadcastAddrList_,
-                        jboolean is72Hz);
+    void initialize(JNIEnv *env, jobject instance, jint helloPort, jint port, jstring deviceName_,
+                        jobjectArray broadcastAddrList_, jintArray refreshRates_, jint renderWidth,
+                        jint renderHeight, jfloatArray fov, jint deviceType, jint deviceSubType,
+                        jint deviceCapabilityFlags, jint controllerCapabilityFlags);
 
     NALParser &getNalParser() {
         return *m_nalParser;
@@ -90,7 +92,7 @@ public:
 
     void runLoop(JNIEnv *env, jobject instance, jstring serverAddress, int serverPort);
     void interrupt();
-    void notifyWaitingThread(JNIEnv *env);
+    void setSinkPrepared(bool prepared);
 
     bool isConnected();
 
@@ -102,6 +104,9 @@ private:
 
     bool m_stopped = false;
 
+    // Turned true when decoder thread is prepared.
+    bool mSinkPrepared = false;
+
     Socket m_socket;
     time_t m_prevSentSync = 0;
     time_t m_prevSentBroadcast = 0;
@@ -109,7 +114,6 @@ private:
     uint64_t timeSyncSequence = (uint64_t) -1;
     uint64_t m_lastReceived = 0;
     uint64_t m_lastFrameIndex = 0;
-    std::string m_deviceName;
     ConnectionMessage m_connectionMessage = {};
 
     uint32_t m_prevVideoSequence = 0;
@@ -117,10 +121,13 @@ private:
     std::shared_ptr<SoundPlayer> m_soundPlayer;
     std::shared_ptr<NALParser> m_nalParser;
 
-    bool m_is72Hz = false;
+    HelloMessage mHelloMessage;
 
     JNIEnv *m_env;
     jobject m_instance;
+    jmethodID mOnConnectMethodID;
+    jmethodID mOnChangeSettingsMethodID;
+    jmethodID mOnDisconnectedMethodID;
 
     //
     // Send buffer
@@ -134,6 +141,10 @@ private:
     Mutex pipeMutex;
     std::list<SendBuffer> m_sendQueue;
 
+    void initializeJNICallbacks(JNIEnv *env, jobject instance);
+
+    void sendStreamStartPacket();
+
     void sendPacketLossReport(ALVR_LOST_FRAME_TYPE frameType, uint32_t fromPacketCounter,
                               uint32_t toPacketCounter);
     void processVideoSequence(uint32_t sequence);
@@ -141,8 +152,8 @@ private:
 
     void processReadPipe(int pipefd);
 
-    void sendTimeSync();
-    void sendBroadcast();
+    void sendTimeSyncLocked();
+    void sendBroadcastLocked();
     void doPeriodicWork();
 
     void recoverConnection(std::string serverAddress, int serverPort);
@@ -153,6 +164,9 @@ private:
     void onConnect(const ConnectionMessage &connectionMessage);
     void onBroadcastRequest();
     void onPacketRecv(const char *packet, size_t packetSize);
+
+    void loadRefreshRates(JNIEnv *refreshRates, jintArray pArray);
+    void loadFov(JNIEnv *env, jfloatArray fov_);
 };
 
 #endif //ALVRCLIENT_UDP_H

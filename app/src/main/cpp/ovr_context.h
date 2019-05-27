@@ -11,39 +11,29 @@
 #include "utils.h"
 #include "udp.h"
 
+uint32_t ovrButton_Unknown1 = 0x01000000;
 
-class VrContext {
+class OvrContext {
 public:
-    void initialize(JNIEnv *env, jobject activity, jobject assetManager, bool ARMode);
-    void destroy();
+    void initialize(JNIEnv *env, jobject activity, jobject assetManager, jobject vrThread, bool ARMode, int initialRefreshRate);
+    void destroy(JNIEnv *env);
 
-    void onChangeSettings(int EnableTestMode, int Suspend);
+    void onChangeSettings(int Suspend);
     void onSurfaceCreated(jobject surface);
     void onSurfaceDestroyed();
     void onSurfaceChanged(jobject surface);
     void onResume();
     void onPause();
-    bool onKeyEvent(int keyCode, int action);
-
-    void onVrModeChange();
-
-    void chooseRefreshRate();
 
     void render(uint64_t renderedFrameIndex);
     void renderLoading();
 
-    void setControllerInfo(TrackingInfo *packet, double displayTime);
-
-    void sendTrackingInfo(TrackingInfo *packet, double displayTime, ovrTracking2 *tracking,
-                              const ovrVector3f *other_tracking_position,
-                              const ovrQuatf *other_tracking_orientation);
-    void fetchTrackingInfo(JNIEnv *env_, UdpManager *udpManager,
+    void fetchTrackingInfo(JNIEnv *env_, jobject udpReceiverThread,
                            ovrVector3f *position, ovrQuatf *orientation);
 
     void setFrameGeometry(int width, int height);
 
     bool isVrMode() { return Ovr != NULL; }
-    bool is72Hz() { return support72hz; }
 
     int getLoadingTexture(){
         return loadingTexture;
@@ -55,25 +45,31 @@ public:
         return CameraTexture;
     }
 
+    void setRefreshRate(int refreshRate, bool forceChange = true);
+
+    void getDeviceDescriptor(JNIEnv *env, jobject deviceDescriptor);
+
 private:
     ANativeWindow *window = NULL;
     ovrMobile *Ovr;
     ovrJava java;
     JNIEnv *env;
 
+    jobject mVrThread = nullptr;
+
     bool UseMultiview = true;
     GLuint SurfaceTextureID = 0;
     GLuint loadingTexture = 0;
     GLuint CameraTexture = 0;
-    int enableTestMode = 0;
     int suspend = 0;
     bool Resumed = false;
-    bool support72hz = false;
     int FrameBufferWidth = 0;
     int FrameBufferHeight = 0;
 
+    static const int DEFAULT_REFRESH_RATE = 60;
+    int m_currentRefreshRate = DEFAULT_REFRESH_RATE;
+
     uint64_t FrameIndex = 0;
-    uint64_t WantedFrameIndex = 0;
 
     // For ARCore
     bool m_ARMode = false;
@@ -92,21 +88,28 @@ private:
     };
     typedef std::map<uint64_t, std::shared_ptr<TrackingFrame> > TRACKING_FRAME_MAP;
 
-    typedef enum
-    {
-        BACK_BUTTON_STATE_NONE,
-        BACK_BUTTON_STATE_PENDING_SHORT_PRESS,
-        BACK_BUTTON_STATE_SKIP_UP
-    } ovrBackButtonState;
-
     TRACKING_FRAME_MAP trackingFrameMap;
     Mutex trackingFrameMutex;
 
-    ovrBackButtonState BackButtonState;
-    bool BackButtonDown;
-    double BackButtonDownStartTime;
-
     ovrRenderer Renderer;
+
+    jmethodID mUdpReceiverThread_send;
+
+    void setControllerInfo(TrackingInfo *packet, double displayTime);
+    uint64_t mapButtons(ovrInputTrackedRemoteCapabilities *remoteCapabilities, ovrInputStateTrackedRemote *remoteInputState);
+
+    void sendTrackingInfo(TrackingInfo *packet, double displayTime, ovrTracking2 *tracking,
+                          const ovrVector3f *other_tracking_position,
+                          const ovrQuatf *other_tracking_orientation);
+
+    void setInitialRefreshRate(int initialRefreshRate);
+
+    void onVrModeChange();
+    void enterVrMode();
+    void leaveVrMode();
+
+    void getRefreshRates(JNIEnv *env_, jintArray refreshRates);
+    void getFov(JNIEnv *env, jfloatArray fov);
 };
 
 #endif //ALVRCLIENT_VR_CONTEXT_H

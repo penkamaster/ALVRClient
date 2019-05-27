@@ -10,9 +10,20 @@ cmake_minimum_required(VERSION 3.4.1)
 # You can define multiple libraries, and CMake builds them for you.
 # Gradle automatically packages shared libraries with your APK.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -g")
 
 link_directories(src/main/jniLibs/${ANDROID_ABI})
+
+if (VRSDK STREQUAL "ovr")
+    add_definitions(-DOVR_SDK)
+    set(VRSOURCE "src/main/cpp/ovr_context.cpp")
+    set(VRLIBS "vrapi")
+elseif (VRSDK STREQUAL "gvr")
+    add_definitions(-DGVR_SDK)
+    set(VRSOURCE "src/main/cpp/gvr_render.cpp"
+            "src/main/cpp/gvr_tracking.cpp")
+    set(VRLIBS "gvr" "gvr_audio")
+endif()
 
 add_library( # Sets the name of the library.
              native-lib
@@ -23,13 +34,16 @@ add_library( # Sets the name of the library.
              # Provides a relative path to your source file(s).
              src/main/cpp/udp.cpp
              src/main/cpp/nal.cpp
-             src/main/cpp/vr_context.cpp
              src/main/cpp/render.cpp
              src/main/cpp/latency_collector.cpp
              src/main/cpp/fec.cpp
              src/main/cpp/asset.cpp
              src/main/cpp/gltf_model.cpp
+             src/main/cpp/utils.cpp
              ../ALVR-common/reedsolomon/rs.c
+             ../ALVR-common/common-utils.cpp
+             ../ALVR-common/exception.cpp
+             ${VRSOURCE}
              )
 
 # Searches for a specified prebuilt library and stores the path as a
@@ -57,7 +71,7 @@ target_link_libraries( # Specifies the target library.
                        # included in the NDK.
                        ${log-lib}
 
-                       vrapi
+                       ${VRLIBS}
                        GLESv3
                        EGL
                        android
